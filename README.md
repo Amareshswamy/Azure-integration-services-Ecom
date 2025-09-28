@@ -1,7 +1,7 @@
 Azure Serverless E-Commerce Platform
 ====================================
 
-Project Demo: https://drive.google.com/file/d/1E_cL9EI-fG1GUSdSUzIGVw_p-lckYDIk/view
+Project Demo: https://drive.google.com/file/d/1KtDeKUDOurHJXc1AV330Z8Zcq_zN_kG8/view?usp=drive_link
 
 This repository contains the source code and architecture for a modern, scalable, and resilient e-commerce platform built entirely on serverless and integration services in Microsoft Azure. The solution is designed as a collection of decoupled microservices that communicate asynchronously, providing significant advantages in scalability, maintainability, and fault tolerance.
 
