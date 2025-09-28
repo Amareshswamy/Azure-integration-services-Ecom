@@ -1,0 +1,259 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "When_a_resource_event_occurs": {
+                "splitOn": "@triggerBody()",
+                "type": "ApiConnectionWebhook",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azureeventgrid']['connectionId']"
+                        }
+                    },
+                    "body": {
+                        "properties": {
+                            "topic": "/subscriptions/1af9ea04-6381-433a-9398-398d6091e2e2/resourceGroups/rg-shared-ecom/providers/Microsoft.EventGrid/topics/egt-ecom-orders",
+                            "destination": {
+                                "endpointType": "webhook",
+                                "properties": {
+                                    "endpointUrl": "@listCallbackUrl()"
+                                }
+                            }
+                        }
+                    },
+                    "path": "/subscriptions/@{encodeURIComponent('1af9ea04-6381-433a-9398-398d6091e2e2')}/providers/@{encodeURIComponent('Microsoft.EventGrid.Topics')}/resource/eventSubscriptions",
+                    "queries": {
+                        "x-ms-api-version": "2017-09-15-preview"
+                    }
+                }
+            }
+        },
+        "actions": {
+            "Switch": {
+                "runAfter": {
+                    "HtmlTableRows": [
+                        "Succeeded"
+                    ]
+                },
+                "cases": {
+                    "OrderPaid": {
+                        "case": "OrderPaid",
+                        "actions": {
+                            "Send_an_email_for_order_paid": {
+                                "runAfter": {
+                                    "Compose": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "name": "@parameters('$connections')['outlook']['connectionId']"
+                                        }
+                                    },
+                                    "method": "post",
+                                    "body": {
+                                        "To": "swamyamaresh123@outlook.com",
+                                        "Subject": "Order Confirmed !!",
+                                        "Body": "<p class=\"editor-paragraph\">@{outputs('Compose')}</p>",
+                                        "Importance": "Normal"
+                                    },
+                                    "path": "/v2/Mail"
+                                }
+                            },
+                            "Get_a_document_(V2)": {
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "name": "@parameters('$connections')['documentdb']['connectionId']"
+                                        }
+                                    },
+                                    "method": "get",
+                                    "path": "/v2/cosmosdb/@{encodeURIComponent('AccountNameFromSettings')}/dbs/@{encodeURIComponent('ECommerceDB')}/colls/@{encodeURIComponent('orders')}/docs/@{encodeURIComponent(body('OrderShipped_Parse_JSON')?['orderId'])}"
+                                }
+                            },
+                            "Compose": {
+                                "runAfter": {
+                                    "For_each": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                "type": "Compose",
+                                "inputs": "<!DOCTYPE html>\n<html>\n<head>\n    <style>\n      /* Your CSS styles here */\n    </style>\n</head>\n<body>\n    <div class=\"invoice-box\">\n        <h2>Invoice for Order: @{body('Get_a_document_(V2)')?['orderId']}</h2>\n        <table>\n            <tr class=\"heading\">\n                <td>Item</td>\n                <td>Quantity</td>\n                <td>Price</td>\n            </tr>\n            @{variables('HtmlTableRows')}\n        </table>\n        <h3>Total: @{body('Get_a_document_(V2)')?['totalAmount']}</h3>\n    </div>\n</body>\n</html>"
+                            },
+                            "For_each": {
+                                "foreach": "@ triggerBody()?['data']?['orderId']",
+                                "actions": {
+                                    "Append_to_string_variable": {
+                                        "type": "AppendToStringVariable",
+                                        "inputs": {
+                                            "name": "HtmlTableRows",
+                                            "value": "<tr>\n    <td>@{items('For_each')?['productName']}</td>\n    <td>@{items('For_each')?['quantity']}</td>\n    <td>@{items('For_each')?['unitPrice']}</td>\n</tr>"
+                                        }
+                                    }
+                                },
+                                "runAfter": {
+                                    "Get_a_document_(V2)": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                "type": "Foreach"
+                            }
+                        }
+                    },
+                    "OrderShipped": {
+                        "case": "OrderShipped",
+                        "actions": {
+                            "Send_an_email_for_OrderShipped": {
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "name": "@parameters('$connections')['outlook']['connectionId']"
+                                        }
+                                    },
+                                    "method": "post",
+                                    "body": {
+                                        "To": "swamyamaresh123@outlook.com",
+                                        "Subject": " Your order @{triggerBody()?['data']?['orderId']} has shipped!",
+                                        "Body": "<p class=\"editor-paragraph\">Hi there,<br><br>Great news! Your order @{triggerBody()?['data']?['orderId']} has been shipped.<br><br>Carrier: @{triggerBody()?['data']?['carrier']}<br>Tracking Number: @{triggerBody()?['data']?['trackingNumber']}<br><br><br>Thanks for shopping with us!</p>",
+                                        "Importance": "Normal"
+                                    },
+                                    "path": "/v2/Mail"
+                                }
+                            }
+                        }
+                    },
+                    "OrderFailed": {
+                        "case": "OrderFailed",
+                        "actions": {
+                            "Send_an_email_(V2)": {
+                                "type": "ApiConnection",
+                                "inputs": {
+                                    "host": {
+                                        "connection": {
+                                            "name": "@parameters('$connections')['outlook']['connectionId']"
+                                        }
+                                    },
+                                    "method": "post",
+                                    "body": {
+                                        "To": "swamyamaresh123@outlook.com",
+                                        "Subject": "Order Failed !!",
+                                        "Body": "<p class=\"editor-paragraph\">Hi there,<br><br>We're sorry, but we encountered a problem while processing your order @{triggerBody()?['data']?['orderId']}.<br><br>Reason: @{triggerBody()?['data']?['failureReason']}<br><br>Please contact our support team at support@example.com for assistance.<br><br>We apologize for the inconvenience</p>",
+                                        "Importance": "Normal"
+                                    },
+                                    "path": "/v2/Mail"
+                                }
+                            }
+                        }
+                    }
+                },
+                "default": {
+                    "actions": {}
+                },
+                "expression": "@triggerBody()?['eventType']",
+                "type": "Switch"
+            },
+            "orderPaid_Json": {
+                "runAfter": {},
+                "type": "ParseJson",
+                "inputs": {
+                    "content": "@triggerBody()",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "orderId": {
+                                "type": "string"
+                            },
+                            "customerId": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "OrderShipped_Parse_JSON": {
+                "runAfter": {
+                    "orderPaid_Json": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ParseJson",
+                "inputs": {
+                    "content": "@triggerBody()",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "orderId": {
+                                "type": "string"
+                            },
+                            "customerId": {
+                                "type": "string"
+                            },
+                            "trackingNumber": {
+                                "type": "string"
+                            },
+                            "carrier": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "HtmlTableRows": {
+                "runAfter": {
+                    "OrderShipped_Parse_JSON": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "HtmlTableRows",
+                            "type": "string"
+                        }
+                    ]
+                }
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {
+                "azureeventgrid": {
+                    "id": "/subscriptions/1af9ea04-6381-433a-9398-398d6091e2e2/providers/Microsoft.Web/locations/eastus/managedApis/azureeventgrid",
+                    "connectionId": "/subscriptions/1af9ea04-6381-433a-9398-398d6091e2e2/resourceGroups/rg-shipping-ecom/providers/Microsoft.Web/connections/azureeventgrid",
+                    "connectionName": "azureeventgrid",
+                    "connectionProperties": {
+                        "authentication": {
+                            "type": "ManagedServiceIdentity"
+                        }
+                    }
+                },
+                "outlook": {
+                    "id": "/subscriptions/1af9ea04-6381-433a-9398-398d6091e2e2/providers/Microsoft.Web/locations/eastus/managedApis/outlook",
+                    "connectionId": "/subscriptions/1af9ea04-6381-433a-9398-398d6091e2e2/resourceGroups/rg-shipping-ecom/providers/Microsoft.Web/connections/outlook",
+                    "connectionName": "outlook"
+                },
+                "documentdb": {
+                    "id": "/subscriptions/1af9ea04-6381-433a-9398-398d6091e2e2/providers/Microsoft.Web/locations/eastus/managedApis/documentdb",
+                    "connectionId": "/subscriptions/1af9ea04-6381-433a-9398-398d6091e2e2/resourceGroups/rg-shipping-ecom/providers/Microsoft.Web/connections/documentdb",
+                    "connectionName": "documentdb"
+                }
+            }
+        }
+    }
+}

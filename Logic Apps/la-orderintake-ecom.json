@@ -1,0 +1,183 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "When_an_HTTP_request_is_received": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {
+                    "method": "POST",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "totalAmount": {
+                                "type": "integer"
+                            },
+                            "shippingAddress": {
+                                "type": "object",
+                                "properties": {
+                                    "street": {
+                                        "type": "string"
+                                    },
+                                    "city": {
+                                        "type": "string"
+                                    },
+                                    "state": {
+                                        "type": "string"
+                                    },
+                                    "zipCode": {
+                                        "type": "string"
+                                    }
+                                }
+                            },
+                            "lineItems": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "productId": {
+                                            "type": "string"
+                                        },
+                                        "productName": {
+                                            "type": "string"
+                                        },
+                                        "quantity": {
+                                            "type": "string"
+                                        },
+                                        "unitPrice": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "productId",
+                                        "productName",
+                                        "quantity",
+                                        "unitPrice"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "actions": {
+            "Select_Product_Quantities": {
+                "runAfter": {},
+                "type": "Select",
+                "inputs": {
+                    "from": "@triggerBody()?['lineItems']",
+                    "select": {
+                        "productId": "@item()?['productId']",
+                        "quantity": "@int(item()?['quantity'])"
+                    }
+                }
+            },
+            "Create_or_update_order_document": {
+                "runAfter": {
+                    "Order_ID": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['documentdb']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "body": {
+                        "id": "@{variables('orderId')}",
+                        "orderId": "@{variables('orderId')}",
+                        "customerId": "GUEST-CHECKOUT",
+                        "orderDate": "@{utcNow()}",
+                        "status": "Pending",
+                        "totalAmount": "@{float(triggerBody()?['totalAmount'])}",
+                        "shippingAddress": "@triggerBody()?['shippingAddress']",
+                        "items": "@body('Select_Product_Quantities')"
+                    },
+                    "path": "/v2/cosmosdb/@{encodeURIComponent('AccountNameFromSettings')}/dbs/@{encodeURIComponent('ECommerceDB')}/colls/@{encodeURIComponent('orders')}/docs"
+                }
+            },
+            "Send_message": {
+                "runAfter": {
+                    "Create_or_update_order_document": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['servicebus-1']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "body": {
+                        "ContentData": "@base64(concat('{\n  \"orderId\": \"',variables('orderId'),'\",\n  \"customerId\": \"GUEST-CHECKOUT\"\n}'))"
+                    },
+                    "path": "/@{encodeURIComponent(encodeURIComponent('new-orders'))}/messages",
+                    "queries": {
+                        "systemProperties": "None"
+                    }
+                }
+            },
+            "Order_ID": {
+                "runAfter": {
+                    "Select_Product_Quantities": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "orderId",
+                            "type": "string",
+                            "value": "@{substring(guid(), 0, 8)}"
+                        }
+                    ]
+                }
+            },
+            "Response": {
+                "runAfter": {
+                    "Send_message": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Response",
+                "kind": "Http",
+                "inputs": {
+                    "statusCode": 200,
+                    "body": "We have received your order with ID: @{variables('orderId')} , will notifiy soon about your status"
+                }
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {
+                "documentdb": {
+                    "id": "/subscriptions/1af9ea04-6381-433a-9398-398d6091e2e2/providers/Microsoft.Web/locations/eastus/managedApis/documentdb",
+                    "connectionId": "/subscriptions/1af9ea04-6381-433a-9398-398d6091e2e2/resourceGroups/rg-shared-ecom/providers/Microsoft.Web/connections/documentdb-1",
+                    "connectionName": "documentdb-1"
+                },
+                "servicebus-1": {
+                    "id": "/subscriptions/1af9ea04-6381-433a-9398-398d6091e2e2/providers/Microsoft.Web/locations/eastus/managedApis/servicebus",
+                    "connectionId": "/subscriptions/1af9ea04-6381-433a-9398-398d6091e2e2/resourceGroups/rg-shared-ecom/providers/Microsoft.Web/connections/servicebus-2",
+                    "connectionName": "servicebus-2"
+                }
+            }
+        }
+    }
+}
